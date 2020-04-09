@@ -1,0 +1,254 @@
+var wndMain: wnd@Wnd
+var drawMain: wnd@Draw
+var WIDTH: int :: 1600
+var HEIGHT: int :: 900
+class Player()
+	+var x: float
+	+var y: float
+	+var width: float
+	+var vx: float
+	+var vy: float
+	+func init(x: float, y: float, vx: float, vy: float, width: float)
+		do me.x :: x
+		do me.y :: y
+		do me.vx :: vx
+		do me.vy :: vy
+		do me.width :: width
+	end func
+end class
+class Target()
+	+var x: float
+	+var y: float
+	+var width: float
+	+var vx: float
+	+var vy: float
+	+func init(x: float, y: float, vx: float, vy: float, width: float)
+		do me.x :: x
+		do me.y :: y
+		do me.vx :: vx
+		do me.vy :: vy
+		do me.width :: width
+	end func
+end class
+class Game()
+	var goaltime: int
+	+var p: @Player
+	+var learn: @Learn
+	var flag: int
+	var count: int
+	var time: int
+	
+	*func ctor()
+		do me.learn :: #@Learn
+		do me.flag :: 1
+		do me.p :: #@Player
+		do me.p.init(@WIDTH $ float / 2.0, @HEIGHT $ float / 3.0 * 2.0, 0.0, 0.0, 50.0)
+	end func
+	func init()
+		var initF: int
+		if(me.p.x < -10.0 | me.p.x > @WIDTH $ float + 10.0)
+			do initF :: 1
+		end if
+		if(me.p.x > me.learn.target.x & me.p.x < me.learn.target.x + me.learn.target.width)
+			do me.goaltime :+ 1
+			if(me.goaltime > 100)
+				do initF :: 1
+			end if
+		end if
+		if(me.time > 500)
+			do initF :: 1
+		end if
+		if(initF = 1)
+			do me.p.init(@WIDTH $ float / 2.0, @HEIGHT $ float / 3.0 * 2.0, 0.0, 0.0, 50.0)
+			do me.count :+ 1
+			do dbg@print("\{me.count}\n")
+			do me.goaltime :: 0
+			do me.time :: 0
+		end if
+	end func
+	+func act(action: int)
+		switch(action)
+		case 0
+		case 1
+			do me.p.vx :- 1.0
+		case 2
+			do me.p.vx :+ 1.0
+		end switch
+	end func
+	func control(flag: int)
+		var action: int
+		switch(flag)
+		case 0
+			if(input@key(%left) = true)
+				do action :: 1
+			end if
+			if(input@key(%right) = true)
+				do action :: 2
+			end if
+		default
+			;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;強化学習↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+			;next
+			var q_max: float :: 0.0
+			var q: []float :: #[3]float
+			var r: float :: 0.0
+			for a(0, 2)
+				var x: float :: 0.0
+				switch(a)
+				case 0
+					do x :: me.p.x + me.p.width / 2.0 + me.p.vx
+				case 1
+					do x :: me.p.x + me.p.width / 2.0 + me.p.vx - 1.0
+				case 2
+					do x :: me.p.x + me.p.width / 2.0 + me.p.vx + 1.0
+				end switch
+				
+				var lcount: int :: 0
+				do me.learn.base_list.head()
+				while(!me.learn.base_list.term())
+					var base: @Base :: me.learn.base_list.get()
+					var theta: float :: base.theta
+					var f: float :: me.learn.basefunc(x, @WIDTH $ float / me.learn.basenum $ float * lcount $ float, me.learn.sigma)
+					do q[a] :+ theta * f
+					do lcount :+ 1
+					do me.learn.base_list.next()
+				end while
+				if(q_max < q[a] | a = 0)
+					do q_max :: q[a]
+					do r :: me.learn.get_reward(x)
+					do action :: a
+				end if
+			end for
+			
+			;now
+			var lcount: int :: 0
+			do me.learn.base_list.head()
+			while(!me.learn.base_list.term())
+				var base: @Base :: me.learn.base_list.get()
+				do base.f :: me.learn.basefunc(me.p.x, @WIDTH $ float / me.learn.basenum $ float * lcount $ float, me.learn.sigma)
+				do base.q :: base.f * base.theta
+				do base.theta :: me.learn.update_theta(base.theta, 0.2, 0.8, q_max, base.q, r, base.f)
+				do lcount :+ 1
+				do me.learn.base_list.next()
+			end while
+			
+			if(q_max = 0.0 | (me.count < me.learn.train / 10))
+				do action :: lib@rnd(0, 2)
+			end if
+			;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;強化学習↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+		end switch
+		do me.act(action)
+	end func
+	
+	func update()
+		do me.p.x :+ me.p.vx
+		do me.p.y :+ me.p.vy
+	end func
+	+func draw()
+		;target
+		do draw@rect(me.learn.target.x, me.learn.target.y, me.learn.target.width, me.learn.target.width, 0xFFFFFF00)
+		;graph
+		for x(0, @WIDTH, 10)
+			var q: float :: 0.0
+			var lcount: int :: 0
+			do me.learn.base_list.head()
+			while(!me.learn.base_list.term())
+				var base: @Base :: me.learn.base_list.get()
+				do q :+ base.theta * me.learn.basefunc(x $ float, @WIDTH $ float / me.learn.basenum $ float * lcount $ float, me.learn.sigma)
+				do lcount :+ 1
+				do me.learn.base_list.next()
+			end while
+			
+			do draw2d@circle(x $ float, q + @HEIGHT $ float / 2.0, 5.0, 5.0, 0xFFFFFFFF)
+		end for
+		;player
+		do draw@rect(me.p.x, me.p.y, me.p.width, me.p.width, 0xFFFF1111)
+		;land
+		do draw@line(0.0, @HEIGHT $ float / 3.0 * 2.0 + me.p.width, @WIDTH $ float, @HEIGHT $ float / 3.0 * 2.0 + me.p.width, 0xFFFFFFFF)
+	end func
+	+func mainloop()
+		while(wnd@act())
+			if(me.learn.train > me.count)
+				do me.time :+ 1
+				do me.control(me.flag)
+				do me.update()
+				do me.init()
+			else
+				do me.time :+ 1
+				do me.control(me.flag)
+				do me.update()
+				do me.draw()
+				do me.init()
+				do draw@render(60)
+			end if
+		end while
+	end func
+	+func show()
+		var lcount: int :: 1
+		do me.learn.base_list.head()
+		while(!me.learn.base_list.term())
+			var base: @Base :: me.learn.base_list.get()
+			do dbg@print("theta\{lcount}:\{base.theta}\n")
+			do lcount :+ 1
+			do me.learn.base_list.next()
+		end while
+	end func
+end class
+class Base()
+	+var q: float
+	+var f: float
+	+var r: float
+	+var theta: float
+end class
+class Learn()
+	+var train: int
+	+var target: @Target
+	+var base_list: list<@Base>
+	+var basenum: int
+	+var sigma: float
+	*func ctor()
+		do me.train :: 0
+		do me.target :: #@Target
+		do me.target.init(@WIDTH $ float * 2.0 / 3.0, @HEIGHT $ float * 2.0 / 3.0, 0.0, 0.0, 50.0)
+		do me.sigma :: 50.0
+		do me.base_list :: #list<@Base>
+		do me.basenum :: 10
+		for(1, me.basenum)
+			var base: @Base :: #@Base
+			do me.base_list.add(base)
+		end for
+	end func
+	+func get_reward(x: float): float
+		if(x > me.target.x & x < me.target.x + me.target.width)
+			ret 10.0
+		elif(x < 10.0 | x > @WIDTH $ float - 10.0)
+			ret - 10.0
+		else
+			ret 0.0
+		end if
+	end func
+	+func basefunc(x: float, mu: float, sigma: float): float
+		ret lib@e ^ (-(x - mu) ^ 2.0 / (2.0 * sigma ^ 2.0)) * 1.0
+	end func
+	+func update_theta(theta: float, a: float, gamma: float, q_max: float, q: float, r: float, f: float): float
+		ret theta + a * (r + gamma * q_max - q) * f
+	end func
+	
+end class
+
+func main()
+	var result: []char :: wndex@inputBox(null, "学習回数を入力してください。", "確認", "10", null)
+	
+	do @wndMain :: wnd@makeWnd(null, %aspect, @WIDTH, @HEIGHT, "Title")
+	do @drawMain :: wnd@makeDraw(@wndMain, 0, 0, @WIDTH, @HEIGHT, %scale, %scale, false)
+	var game: @Game :: #@Game
+	
+	if(result =& null)
+		ret
+	else
+		var existed: bool
+		do game.learn.train :: result.toInt(&existed)
+	end if
+	
+	do game.mainloop()
+	do game.show()
+end func
